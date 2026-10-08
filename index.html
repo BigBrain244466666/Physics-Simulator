@@ -281,4 +281,48 @@ footer input { width: 140px; accent-color: black; }
   // Page controls and drawing
 const canvas = document.querySelector('#world');
 const pen = canvas.getContext('2d');
-const notice = document.querySelector('#not
+const notice = document.querySelector('#notice');
+const pauseButton = document.querySelector('#pause-button');
+const pauseLabel = document.querySelector('#pause-label');
+const gravitySlider = document.querySelector('#gravity');
+const gravityValue = document.querySelector('#gravity-value');
+const elapsedText = document.querySelector('#time-value');
+const runStatus = document.querySelector('#run-status');
+const selectedSummary = document.querySelector('#selected-summary');
+const zoomValue = document.querySelector('#zoom-value');
+const initialVx = document.querySelector('#set-vx');
+const initialVy = document.querySelector('#set-vy');
+const emptyPanel = document.querySelector('#empty-panel');
+const propertyPanel = document.querySelector('#property-panel');
+
+const readouts = {
+  posX: document.querySelector('#pos-x'),
+  posY: document.querySelector('#pos-y'),
+  velX: document.querySelector('#vel-x'),
+  velY: document.querySelector('#vel-y'),
+  speed: document.querySelector('#speed'),
+  accX: document.querySelector('#acc-x'),
+  accY: document.querySelector('#acc-y'),
+  accMag: document.querySelector('#acc-mag'),
+  bodyType: document.querySelector('#body-type'),
+  bodyMass: document.querySelector('#body-mass'),
+  spin: document.querySelector('#angular-speed')
+};
+
+const startingScene = { title: 'Untitled', gravity: 1, objects: [] };
+
+let world = new Physics.PhysicsWorld(startingScene);
+const camera = new BenchCamera.Camera(1000, 600);
+let autoFit = true;
+let playing = false;
+let selected = null;
+let grabbed = null;
+let grabStart = null;
+let lastFrame = performance.now();
+let accumulator = 0;
+let readoutFrame = 0;
+let shownSelection = null;
+let viewWidth = 1000;
+let viewHeight = 600;
+let pixelRatio = 1;
+
