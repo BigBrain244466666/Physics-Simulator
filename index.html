@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Physics Bench</title>
+  <style>
+* { box-sizing: border-box; }
+html, body { margin: 0; min-width: 320px; height: 100%; }
+body { font: 15px Arial, sans-serif; color: black; background: white; }
+button, input { font: inherit; color: black; }
+button { background: white; border: 1px solid #999; padding: 6px 10px; cursor: pointer; }
+button:hover { background: #eee; }
+button:focus-visible, input:focus-visible { outline: 2px solid black; outline-offset: 1px; }
+[hidden] { display: none !important; }
+header { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 9px 12px; border-bottom: 1px solid black; }
+header > strong { white-space: nowrap; font-size: 17px; }
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+.divider { height: 23px; border-left: 1px solid #aaa; margin: 0 4px; }
+main { padding: 10px; min-height: calc(100vh - 52px); display: flex; flex-direction: column; gap: 8px; }
+.workspace { display: grid; grid-template-columns: minmax(0, 1fr) 265px; gap: 10px; flex: 1; min-height: 0; }
+.canvas-shell { border: 1px solid black; min-height: 370px; overflow: hidden; }
+canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; }
+canvas.dragging { cursor: grabbing; }
+aside { border: 1px solid black; padding: 12px; }
+h2 { font-size: 17px; margin: 0 0 6px; }
+#selected-summary { font-size: 14px; margin-bottom: 14px; }
+h3 { font-size: 15px; font-weight: bold; margin: 0 0 8px; }
+aside section { border-top: 1px solid #bbb; padding: 12px 0; }
+.velocity-inputs { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
+.velocity-inputs label { display: flex; flex-direction: column; gap: 5px; }
+.velocity-inputs input { width: 100%; padding: 6px; border: 1px solid #888; }
+.measurement { display: flex; justify-content: space-between; gap: 10px; padding: 5px 0; }
+.measurement output { font-family: Consolas, monospace; font-size: 14px; }
+footer { display: flex; flex-wrap: wrap; align-items: center; gap: 15px; border-top: 1px solid black; padding: 9px 2px; }
+footer strong { font-size: 14px; }
+footer input { width: 140px; accent-color: black; }
+#notice { margin-left: auto; font-size: 13px; }
+@media (min-width: 1000px) and (min-height: 650px) {
+  main { height: calc(100dvh - 52px); }
+  aside { overflow-y: auto; }
+}
+@media (max-width: 850px) {
+  .workspace { grid-template-columns: 1fr; }
+  .canvas-shell { height: 58vh; }
+  aside { max-height: none; }
+}
+@media (max-width: 850px) {
+  .canvas-shell { height: 270px; min-height: 270px; }
+}
+  </style>
+</head>
+<body>
+  <header>
+    <strong>Physics Bench</strong>
+    <div class="toolbar">
+      <button id="pause-button" type="button"><span id="pause-label">Play</span></button>
+      <button id="reset-button" type="button">Reset</button>
+      <button id="clear-button" type="button">Clear</button>
+      <span class="divider"></span>
+      <button id="add-ball" type="button">Ball</button>
+      <button id="add-box" type="button">Box</button>
+      <button id="add-ramp" type="button">Ramp</button>
+      <button id="add-platform" type="button">Platform</button>
+      <button id="add-pendulum" type="button">Pendulum</button>
+      <button id="delete-button" type="button">Delete</button>
+      <span class="divider"></span>
+      <button id="zoom-out" type="button" aria-label="Zoom out">−</button>
+      <button id="fit-view" type="button">Fit</button>
+      <button id="zoom-in" type="button" aria-label="Zoom in">+</button>
+    </div>
+  </header>
+
+  <main>
+    <div class="workspace">
+      <div class="canvas-shell">
+        <canvas id="world" aria-label="Physics simulation"></canvas>
+      </div>
+      <aside>
+        <h2>Properties</h2>
+        <div id="selected-summary">None</div>
+        <div id="empty-panel">—</div>
+        <div id="property-panel" hidden>
+          <section>
+            <h3>Velocity (m/s)</h3>
+            <div class="velocity-inputs">
+              <label for="set-vx">X
+                <input id="set-vx" type="number" step="0.1" min="-50" max="50" value="0">
+              </label>
+              <label for="set-vy">Y
+                <input id="set-vy" type="number" step="0.1" min="-50" max="50" value="0">
+              </label>
+            </div>
+          </section>
+          <section>
+            <h3>Position (m)</h3>
+            <div class="measurement"><span>X</span><output id="pos-x">0</output></div>
+            <div class="measurement"><span>Y</span><output id="pos-y">0</output></div>
+          </section>
+          <section>
+            <h3>Velocity (m/s)</h3>
+            <div class="measurement"><span>X</span><output id="vel-x">0</output></div>
+            <div class="measurement"><span>Y</span><output id="vel-y">0</output></div>
+            <div class="measurement"><span>Speed</span><output id="speed">0</output></div>
+          </section>
+          <section>
+            <h3>Acceleration (m/s²)</h3>
+            <div class="measurement"><span>X</span><output id="acc-x">0</output></div>
+            <div class="measurement"><span>Y</span><output id="acc-y">0</output></div>
+            <div class="measurement"><span>Magnitude</span><output id="acc-mag">0</output></div>
+          </section>
+          <section>
+            <h3>Body</h3>
+            <div class="measurement"><span>Type</span><output id="body-type">—</output></div>
+            <div class="measurement"><span>Mass</span><output id="body-mass">0</output></div>
+            <div class="measurement"><span>Angular velocity</span><output id="angular-speed">0</output></div>
+          </section>
+        </div>
+      </aside>
+    </div>
+    <footer>
+      <span id="run-status">Paused</span>
+      <span>Time: <strong id="time-value">0.0 s</strong></span>
+      <span>Objects: <strong id="stats-count">0</strong></span>
+      <span>Zoom: <strong id="zoom-value">100%</strong></span>
+      <label for="gravity">Gravity</label>
+      <input id="gravity" type="range" min="0" max="2.5" step="0.05" value="1">
+      <strong id="gravity-value">9.81 m/s²</strong>
+      <span id="notice" role="status" aria-live="polite"></span>
+    </footer>
+  </main>
+  <script>
+  // Physics engine
+/* Physics Bench — a small, deliberately 2D, high-school mechanics engine.
+
+   The world is drawn in pixels, but the physics uses an explicit scale:
+   100 world pixels = 1 metre. Velocities are stored as pixels/second,
+   which is equivalent to storing m/s and multiplying by 100 when drawing.
+
+   No air drag or dissipative friction. Object-object restitution is zero;
+   the four outer walls have restitution 1 (perfectly elastic).
+   Solid balls roll without slipping when supported by a ramp or floor.
+   Boxes translate but don't rotate yet.
+*/
+(function (root) {
+  const W = 1000;
+  const H = 600;
+  const floor = 560;
+  const PIXELS_PER_METRE = 100;
+  const GRAVITY = 9.81;
+  const GRAVITY_PX = GRAVITY * PIXELS_PER_METRE;
+  const WALL_RESTITUTION = 1;
+  const BALL_INERTIA_RATIO = 2 / 5; // I = (2/5)mr² for a uniform solid sphere.
+
+  function clamp(n, min, max) { return Math.max(min, Math.min(max, n)); }
+  function length(x, y) { return Math.hypot(x, y); }
+
+  function bodyFromSpec(spec, id) {
+    const pendulum = spec.type === 'pendulum';
+    const fixed = spec.type === 'ramp' || spec.type === 'platform';
+    const ball = spec.type === 'ball' || pendulum;
+    const radius = (ball ? (pendulum ? spec.height : spec.width) : 0) / 2;
+    const ropeLength = pendulum ? spec.width : 0;
+    const theta = Math.asin(0.64);
+    const x = pendulum ? spec.x + ropeLength * Math.sin(theta) : spec.x;
+    const y = pendulum ? spec.y + ropeLength * Math.cos(theta) : spec.y;
+    const mass = spec.mass != null && Number.isFinite(+spec.mass)
+      ? clamp(+spec.mass, 0.01, 1000) : fixed ? 1 : ball ? 1 : 2;
+    const body = {
+      id, type: spec.type, label: spec.label || `${spec.type} ${id}`,
+      color: spec.color || '#7796ae', x, y,
+      vx: pendulum ? 0 : (spec.vx || 0), vy: pendulum ? 0 : (spec.vy || 0),
+      ax: 0, ay: fixed ? 0 : GRAVITY_PX,
+      width: spec.width, height: spec.height, angle: spec.angle || 0,
+      radius, mass, fixed, ball, dragging: false,
+      friction: 0, bounce: 0, omega: 0,
+      rope: pendulum ? { x: spec.x, y: spec.y, length: ropeLength, theta, omega: 0 } : null
+    };
+    if (body.rope && (spec.vx || spec.vy)) {
+      const t = body.rope;
+      t.omega = ((spec.vx || 0) * Math.cos(t.theta) - (spec.vy || 0) * Math.sin(t.theta)) / t.length;
+      body.vx = t.length * Math.cos(t.theta) * t.omega;
+      body.vy = -t.length * Math.sin(t.theta) * t.omega;
+    }
+    return body;
+  }
+
+  // Imported or newly created objects should start fully inside the walls.
+  // Non-pendulum ramps/boxes can be rotated visually, so use their full bounds.
+  function keepSpecInside(spec) {
+    const copy = { ...spec };
+    const angle = copy.angle || 0;
+    const c = Math.abs(Math.cos(angle));
+    const s = Math.abs(Math.sin(angle));
+    const ex = (copy.width * c + copy.height * s) / 2;
+    const ey = (copy.width * s + copy.height * c) / 2;
+    if (copy.type === 'pendulum') {
+      const radius = copy.height / 2;
+      const reachX = copy.width * 0.64;
+      const reachY = copy.width * Math.sqrt(1 - 0.64 ** 2);
+      copy.x = clamp(copy.x, radius, W - radius - reachX);
+      copy.y = clamp(copy.y, radius, floor - radius - reachY);
+    } else {
+      copy.x = clamp(copy.x, ex, W - ex);
+      copy.y = clamp(copy.y, ey, floor - ey);
+    }
+    return copy;
+  }
+
+  // Mirror the overshoot rather than just clipping position. That preserves
+  // direction and avoids losing energy at a perfectly elastic wall.
+  function reflectAxis(position, velocity, minimum, maximum) {
+    if (maximum <= minimum) return { position: (minimum + maximum) / 2, velocity: 0 };
+    let count = 0;
+    while ((position < minimum || position > maximum) && count++ < 100) {
+      if (position < minimum) {
+        position = 2 * minimum - position;
+        velocity = Math.abs(velocity) * WALL_RESTITUTION;
+      } else if (position > maximum) {
+        position = 2 * maximum - position;
+        velocity = -Math.abs(velocity) * WALL_RESTITUTION;
+      }
+    }
+    // Also handle a body exactly on an edge with an outward-pointing velocity.
+    position = clamp(position, minimum, maximum);
+    if (position <= minimum && velocity < 0) velocity = -velocity * WALL_RESTITU  class Camera {
+    constructor(width = 1000, height = 600) {
+      this.width = width;
+      this.height = height;
+      this.zoom = 1;
+      this.x = 0;
+      this.y = 0;
+    }
+
+    toScreen(x, y) {
+      return { x: x * this.zoom + this.x, y: y * this.zoom + this.y };
+    }
+
+    toWorld(x, y) {
+      return { x: (x - this.x) / this.zoom, y: (y - this.y) / this.zoom };
+    }
+
+    fit(objects, floor = 560) {
+      const b = boundsFor(objects, floor);
+      const width = Math.max(220, b.right - b.left + 150);
+      const height = Math.max(180, b.bottom - b.top + 120);
+      this.zoom = clamp(Math.min(this.width / width, this.height / height), 0.45, 2.5);
+      const cx = (b.left + b.right) / 2;
+      const cy = (b.top + b.bottom) / 2;
+      this.x = this.width / 2 - cx * this.zoom;
+      this.y = this.height / 2 - cy * this.zoom;
+    }
+
+    // Fit the physical boundaries, not the objects' current positions. An
+    // object may travel anywhere inside this box without leaving this view.
+    fitWorld(worldWidth = 1000, floorY = 560, margin = 18) {
+      this.zoom = Math.min(this.width / (worldWidth + margin * 2),
+        this.height / (floorY + margin * 2), 2.5);
+      this.x = (this.width - worldWidth * this.zoom) / 2;
+      this.y = (this.height - floorY * this.zoom) / 2;
+    }
+
+    zoomAt(factor, screenX = this.width / 2, screenY = this.height / 2) {
+      const anchor = this.toWorld(screenX, screenY);
+      this.zoom = clamp(this.zoom * factor, 0.15, 3.5);
+      this.x = screenX - anchor.x * this.zoom;
+      this.y = screenY - anchor.y * this.zoom;
+    }
+
+    pan(dx, dy) {
+      this.x += dx;
+      this.y += dy;
+    }
+  }
+
+  const api = { Camera, boundsFor };
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  root.BenchCamera = api;
+})(typeof window !== 'undefined' ? window : globalThis);
+
+  // Page controls and drawing
+const canvas = document.querySelector('#world');
+const pen = canvas.getContext('2d');
+const notice = document.querySelector('#not
