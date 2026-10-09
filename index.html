@@ -223,7 +223,163 @@ footer input { width: 140px; accent-color: black; }
     }
     // Also handle a body exactly on an edge with an outward-pointing velocity.
     position = clamp(position, minimum, maximum);
-    if (position <= minimum && velocity < 0) velocity = -velocity * WALL_RESTITU  class Camera {
+    if (position <= minimum && velocity < 0) velocity = -velocity * WALL_RESTITU  class PhysicsWorld {
+    constructor(scene) { this.load(scene); }
+
+    load(scene) {
+      this.scene = JSON.parse(JSON.stringify(scene));
+      this.scene.objects = this.scene.objects.map(spec => keepSpecInside({ ...spec, bounce: 0, friction: 0 }));
+      this.gravity = Number.isFinite(+scene.gravity) ? +scene.gravity : 1;
+      this.objects = this.scene.objects.map((spec, i) => bodyFromSpec(spec, i + 1));
+      this.elapsed = 0;
+      this.nextId = this.objects.length + 1;
+    }
+    reset() { this.load(this.scene); }
+    add(spec) {
+      const clean = keepSpecInside({ ...spec, bounce: 0, friction: 0 });
+      this.scene.objects.push(clean);
+      const body = bodyFromSpec(clean, this.nextId++);
+      this.objects.push(body);
+      return body;
+    }
+    edit(body, changes) {
+      const index = this.objects.indexOf(body);
+      if (index < 0) return;
+      for (const [key, value] of Object.entries(changes)) {
+        if (!(key in body) || key === 'bounce' || key === 'friction' || key === 'ax' || key === 'ay') continue;
+        body[key] = value;
+        this.scene.objects[index][key] = value;
+      }
+    }
+    remove(body) {
+      const index = this.objects.indexOf(body);
+      if (index < 0) return;
+      this.objects.splice(index, 1);
+      this.scene.objects.splice(index, 1);
+    }
+    step(dt) {
+      const count = Math.max(1, Math.ceil(dt / (1 / 300)));
+      const subDt = dt / count;
+      for (let i = 0; i < count; i++) this.tick(subDt);
+      this.elapsed += dt;
+    }
+    tick(dt) {
+      const before = new Map();
+      const ramps = this.objects.filter(o => o.type === 'ramp');
+      const fixedPlatforms = this.objects.filter(o => o.type === 'platform');
+      const moving = this.objects.filter(o => !o.fixed && !o.dragging);
+
+      for (const body of moving) {
+        before.set(body, { vx: body.vx, vy: body.vy });
+        if (body.rope) {
+          movePendulum(body, dt, this.gravity);
+          continue;
+        }
+        const support = ramps.map(ramp => rampSupport(body, ramp, 1.8))
+          .find(item => item && body.vx * item.nx + body.vy * item.ny <= 0.01);
+        if (support) {
+          moveOnRamp(body, this.gravity, support, dt);
+        } else if (fixedPlatforms.some(platform => platformSupport(body, platform, 1.2)) && body.vy >= -1) {
+          const platform = fixedPlatforms.find(p => platformSupport(body, p, 1.2));
+          body.y = platform.y - platform.height / 2 - (body.ball ? body.radius : body.height / 2);
+          body.vy = 0;
+          captureRolling(body, 1, 0);
+          body.x += body.vx * dt;
+        } else if (floorSupport(body, 0.001) && Math.abs(body.vy) < 0.0001) {
+          body.y = floor - (body.ball ? body.radius : body.height / 2);
+          body.vy = 0;
+          captureRolling(body, 1, 0);
+          body.x += body.vx * dt;
+        } else {
+          body.vy += GRAVITY_PX * this.gravity * dt;
+          body.x += body.vx * dt;
+          body.y += body.vy * dt;
+          // In free flight there is no torque, so angular velocity stays constant.
+        }
+      }
+
+      for (let pass = 0; pass < 6; pass++) {
+        for (const body of moving) {
+          // Four perfectly elastic outer walls, unlike the internal surfaces.
+          bounceOffWalls(body);
+
+          for (const ramp of ramps) {
+            const hit = rampSupport(body, ramp, 1);
+            if (!hit || hit.distance >= hit.target) continue;
+            body.x += hit.nx * (hit.target - hit.distance);
+            body.y += hit.ny * (hit.target - hit.distance);
+            const inwardSpeed = body.vx * hit.nx + body.vy * hit.ny;
+            if (inwardSpeed < 0) {
+              body.vx -= inwardSpeed * hit.nx;
+              body.vy -= inwardSpeed * hit.ny;
+            }
+            captureRolling(body, hit.tx, hit.ty);
+          }
+          for (const platform of fixedPlatforms) {
+            const hit = contact(body, platform);
+            if (hit) {
+              resolveContact(body, platform, hit);
+              if (body.ball && platformSupport(body, platform, 2) && body.vy >= -1) {
+                captureRolling(body, 1, 0);
+              }
+            }
+          }
+        }
+
+        for (let i = 0; i < moving.length; i++) {
+          for (let j = i + 1; j < moving.length; j++) {
+            const a = moving[i], b = moving[j];
+            const size = Math.max(a.width, a.height, b.width, b.height);
+            if (Math.abs(a.x - b.x) > size || Math.abs(a.y - b.y) > size) continue;
+            const hit = contact(a, b);
+            if (hit) resolveContact(a, b, hit);
+          }
+        }
+        for (const body of moving) {
+          if (body.rope) {
+            keepRopeTaut(body);
+            bouncePendulumOffWalls(body);
+          } else {
+            bounceOffWalls(body);
+          }
+        }
+      }
+
+      for (const body of this.objects) {
+        if (body.fixed || body.dragging) { body.ax = 0; body.ay = 0; continue; }
+        const old = before.get(body);
+        body.ax = (body.vx - old.vx) / dt;
+        body.ay = (body.vy - old.vy) / dt;
+      }
+      // Contact correction in the last solver pass can move bodies toward a
+      // border. Do a final check so nothing ends a step outside the playfield.
+      for (const body of moving) {
+        if (body.rope) bouncePendulumOffWalls(body);
+        else bounceOffWalls(body);
+      }
+    }
+
+    findBody(x, y) {
+      for (let i = this.objects.length - 1; i >= 0; i--) {
+        const body = this.objects[i];
+        if (body.ball && length(x - body.x, y - body.y) < body.radius + 8) return body;
+        if (!body.ball && Math.abs(x - body.x) < body.width / 2 + 7 && Math.abs(y - body.y) < body.height / 2 + 7) return body;
+      }
+      return null;
+    }
+  }
+
+  const api = { PhysicsWorld, W, H, floor, contact, PIXELS_PER_METRE, GRAVITY, BALL_INERTIA_RATIO, WALL_RESTITUTION };
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  root.Physics = api;
+})(typeof window !== 'undefined' ? window : globalThis);
+
+  // Camera
+// The camera changes what we see, not where objects are in the physics world.
+(function (root) {
+  const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
+
+  class Camera {
     constructor(width = 1000, height = 600) {
       this.width = width;
       this.height = height;
